@@ -1,0 +1,62 @@
+name: Build FVClient APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Clone Telegram FOSS
+      run: |
+        git clone --depth=1 https://github.com .
+        git submodule update --init --recursive --depth 1
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+
+    - name: Inject FVClient Settings and Proxy
+      run: |
+        # 1. Замена API_ID и API_HASH строго в конфигурационном файле констант
+        sed -i 's|public static int APP_ID = .*|public static int APP_ID = 30355297;|g' TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java
+        sed -i 's|public static String APP_HASH = .*|public static String APP_HASH = "185d33731f4ac88b116e5b6c8f61b22c";|g' TMessagesProj/src/main/java/org/telegram/messenger/BuildVars.java
+        
+        # 2. Замена имени приложения во всех языковых ресурсах (для экранов входа и интерфейса)
+        find TMessagesProj/src/main/res/ -name "strings.xml" -exec sed -i 's|AppName">.*<|AppName">FVClient<|g' {} +
+        find TMessagesProj/src/main/res/ -name "strings.xml" -exec sed -i 's|Telegram|FVClient|g' {} +
+        
+        # 3. Принудительная замена системного слова Telegram на FVClient в коде авторизации
+        find TMessagesProj/src/main/java/ -name "*.java" -exec sed -i 's/"Telegram"/"FVClient"/g' {} +
+        
+        # 4. Вшивание ссылки на твой ТГК t.me/Vyacheslav20K вместо ссылок поддержки по умолчанию
+        find TMessagesProj/src/main/res/ -name "strings.xml" -exec sed -i 's|t.me/telegram|t.me/Vyacheslav20K|g' {} +
+
+        # 5. Перекрашивание дефолтных цветов мессенджера на фиолетовую гамму
+        find TMessagesProj/src/main/res/values/ -name "*.xml" -exec sed -i 's|#5085a5|#7B1FA2|g' {} +
+        find TMessagesProj/src/main/res/values/ -name "*.xml" -exec sed -i 's|#4a7197|#5E35B1|g' {} +
+        find TMessagesProj/src/main/res/values/ -name "*.xml" -exec sed -i 's|#2196F3|#8E24AA|g' {} +
+
+        # 6. Вшивание рабочего прокси на уровне сетевого менеджера соединений
+        sed -i 's|currentProxyAddress = .*|currentProxyAddress = "109.236.83.136";|g' TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java
+        sed -i 's|currentProxyPort = .*|currentProxyPort = 1080;|g' TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java
+        sed -i 's|currentProxyType = .*|currentProxyType = 1;|g' TMessagesProj/src/main/java/org/telegram/tgnet/ConnectionsManager.java
+
+    - name: Grant Execute Permission
+      run: chmod +x gradlew
+
+    - name: Build Android APK
+      run: |
+        ./gradlew assembleAfossDebug \
+          -PapplicationId=://fvclient.com \
+          --no-daemon \
+          --stacktrace
+
+    - name: Upload Finished APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: FVClient-RuStore-Release
+        path: TMessagesProj/build/outputs/apk/afoss/debug/*.apk
